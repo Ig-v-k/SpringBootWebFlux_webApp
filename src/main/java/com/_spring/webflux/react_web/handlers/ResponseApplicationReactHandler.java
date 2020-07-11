@@ -17,6 +17,13 @@ import java.util.stream.Stream;
 public class ResponseApplicationReactHandler {
 
     public Mono<ServerResponse> hello(ServerRequest request) {
+        Long startPag = request.queryParam("startPag")
+                .map(Long::valueOf)
+                .orElse(0L);
+        Long count = request.queryParam("count")
+                .map(Long::valueOf)
+                .orElse(3L);
+
         Flux<Message> data = Flux
                 .just(
                         "Hello, reactive!",
@@ -25,6 +32,8 @@ public class ResponseApplicationReactHandler {
                         "Fourth post",
                         "Fifth post"
                 )
+                .skip(startPag)
+                .take(count)
                 .map(Message::new);
 
         return ServerResponse
