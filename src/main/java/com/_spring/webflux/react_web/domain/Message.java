@@ -1,10 +1,17 @@
 package com._spring.webflux.react_web.domain;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
 
-@AllArgsConstructor
+@Data
+@NoArgsConstructor
 public class Message {
-    @Getter
+    @Id
+    private Long id;
     private String data;
+
+    public Message(String data) {
+        this.data = data;
+    }
 }
