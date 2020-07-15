@@ -22,11 +22,13 @@ public class MainController {
     public Flux<Message> list(
             @RequestParam(defaultValue = "0") Long startPaging,
             @RequestParam(defaultValue = "3") Long count) {
-        return messageService.list();
+        return messageService
+                .list()
+                .skip(startPaging);
     }
 
     @PostMapping
-    public Mono<Message> add(Message message) {
+    public Mono<Message> add(@RequestBody  Message message) {
         return messageService.addOne(message);
     }
 }
