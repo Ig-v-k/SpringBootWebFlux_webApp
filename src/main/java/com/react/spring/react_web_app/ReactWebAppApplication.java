@@ -3,10 +3,7 @@ package com.react.spring.react_web_app;
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration;
 import io.r2dbc.postgresql.PostgresqlConnectionFactory;
 import io.r2dbc.spi.ConnectionFactory;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import lombok.extern.log4j.Log4j2;
 import org.reactivestreams.Publisher;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,9 +22,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.awt.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.stream.Stream;
@@ -54,6 +54,62 @@ class ReservationRestController {
     @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE, value = "/sec/{n}")
     Publisher<GreetingResponse> stringPublisher(@PathVariable String n) {
         return this.intervalMessageProducer.produceGreeting(new GreetingRequest(n));
+    }
+
+}
+
+@Configuration
+class ReservationEndpointConfiguration {
+
+//    @Bean
+//    RouterFunction<ServerResponse> routes(ProfileHandler handler) {
+//        return route(i(GET("/profiles")), handler::all)
+//              .andRoute(i(GET("/profiles/{id}")), handler::getById)
+//              .andRoute(i(DELETE("/profiles/{id}")), handler::deleteById)
+//              .andRoute(i(POST("/profiles")), handler::create)
+//              .andRoute(i(PUT("/profiles/{id}")), handler::updateById);
+//    }
+//
+//    private static RequestPredicate i(RequestPredicate target) {
+//        return new CaseInsensitiveRequestPredicate(target);
+//    }
+
+    @Bean
+    RouterFunction<ServerResponse> route(ReservationRepository reservationRepository) {
+        return RouterFunctions
+              .route()
+              .GET("/h/rsn", serverRequest -> ServerResponse
+                    .ok()
+                    .body(
+                          reservationRepository.findAll(),
+                          Reservation.class
+                    )
+              )
+              .GET("/h/rsn/{n}", serverRequest -> ServerResponse
+                    .ok()
+                    .body(
+                          reservationRepository.findByName(
+                                serverRequest
+                                      .pathVariable("n")
+                                      .toUpperCase()
+                          ),
+                          Reservation.class)
+              )
+              .build();
+    }
+
+}
+
+
+
+@Component
+class IntervalMessageProducer {
+
+    Flux<GreetingResponse> produceGreeting(GreetingRequest request) {
+        return Flux
+              .fromStream(Stream.generate( () -> "Hello " + request.getText() + " @ " + Instant.now()))
+              .map(GreetingResponse::new)
+              .delayElements(Duration.ofSeconds(1));
     }
 
 }
@@ -92,24 +148,14 @@ class DatabaseConfiguration {
 }
 
 interface ReservationRepository extends ReactiveCrudRepository<Reservation, Integer> {
-}
-
-@Component
-class IntervalMessageProducer {
-
-    Flux<GreetingResponse> produceGreeting(GreetingRequest request) {
-        return Flux
-        .fromStream(Stream.generate( () -> "Hello " + request.getText() + " @ " + Instant.now()))
-        .map(GreetingResponse::new)
-        .delayElements(Duration.ofSeconds(1));
-    }
-
+    Mono<Reservation> findByName(String name);
 }
 
 @Component
 @Log4j2
 @RequiredArgsConstructor
 class SampleDataInitializer {
+
     private final ReservationRepository reservationRepository;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -133,6 +179,7 @@ class SampleDataInitializer {
 class Reservation {
     @Id
     private Integer id;
+    @NonNull
     private String name;
 }
 
