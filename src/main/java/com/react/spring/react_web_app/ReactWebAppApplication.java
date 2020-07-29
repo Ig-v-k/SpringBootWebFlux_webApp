@@ -19,10 +19,10 @@ import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Service;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerResponse;
+import org.springframework.web.reactive.result.view.ViewResolver;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -44,42 +45,27 @@ public class ReactWebAppApplication {
   }
 }
 
+@Log4j2
 @RestController
 @RequiredArgsConstructor
 class ReservationRestController {
 
-  private final ReservationService reservationService;
+  private final ReservationRepository reservationRepository;
   private final IntervalMessageProducer intervalMessageProducer;
 
   @GetMapping("/reservation")
-  String reservationPublisher(Model model) {
-	model.addAttribute("mapData", reservationService.findAllObjs());
-	return "index";
+  Flux<Reservation> reservationPublisher(Model model) {
+	return reservationRepository.findAll();
   }
 
   @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE, value = "/sec/{n}")
   Publisher<GreetingResponse> stringPublisher(@PathVariable String n) {
 	return this.intervalMessageProducer.produceGreeting(new GreetingRequest(n));
   }
-
 }
 
 @Configuration
 class ReservationEndpointConfiguration {
-
-//    @Bean
-//    RouterFunction<ServerResponse> routes(ProfileHandler handler) {
-//        return route(i(GET("/profiles")), handler::all)
-//              .andRoute(i(GET("/profiles/{id}")), handler::getById)
-//              .andRoute(i(DELETE("/profiles/{id}")), handler::deleteById)
-//              .andRoute(i(POST("/profiles")), handler::create)
-//              .andRoute(i(PUT("/profiles/{id}")), handler::updateById);
-//    }
-//
-//    private static RequestPredicate i(RequestPredicate target) {
-//        return new CaseInsensitiveRequestPredicate(target);
-//    }
-
   @Bean
   RouterFunction<ServerResponse> route(ReservationRepository reservationRepository) {
 	return RouterFunctions
@@ -118,7 +104,6 @@ class ReservationEndpointConfiguration {
 				))
 		  .build();
   }
-
 }
 
 
@@ -134,21 +119,21 @@ class IntervalMessageProducer {
 
 @Configuration
 @EnableWebSecurity
-@EnableGlobalMethodSecurity
-@RequiredArgsConstructor
+@EnableGlobalMethodSecurity(prePostEnabled = true)
 class WebSecurityConfig extends WebSecurityConfigurerAdapter {
+  @Override
+  protected void configure(HttpSecurity http) throws Exception {
+	http
+		  .antMatcher("/**")
+		  .csrf()
+		  .disable()
+		  .formLogin().disable()
+		  .httpBasic().disable();
+  }
 
-  ReservationService
-
-}
-
-@Service
-@RequiredArgsConstructor
-class ReservationService {
-  ReservationRepository reservationRepository;
-
-  public Flux<Reservation> findAllObjs() {
-	reservationRepository.findAll();
+  @Bean
+  public ViewResolver internalResourceViewResolver() {
+	/* here i was stopped - some code */
   }
 }
 
@@ -188,7 +173,6 @@ class DatabaseConfiguration {
 
 interface ReservationRepository extends ReactiveCrudRepository<Reservation, Integer> {
   Mono<Reservation> findByName(String name);
-
   Flux<Reservation> deleteAllByName(String name);
 }
 
