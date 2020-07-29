@@ -30,31 +30,32 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 @SpringBootApplication
 public class ReactWebAppApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(ReactWebAppApplication.class, args);
-    }
+ public static void main(String[] args) {
+  SpringApplication.run(ReactWebAppApplication.class, args);
+ }
 }
 
 @RestController
 @RequiredArgsConstructor
 class ReservationRestController {
 
-    private final ReservationRepository reservationRepository;
-    private final IntervalMessageProducer intervalMessageProducer;
+ private final ReservationRepository reservationRepository;
+ private final IntervalMessageProducer intervalMessageProducer;
 
-    @GetMapping("/reservation")
-    Publisher<Reservation> reservationPublisher() {
-        return this.reservationRepository.findAll();
-    }
+ @GetMapping("/reservation")
+ Publisher<Reservation> reservationPublisher() {
+  return this.reservationRepository.findAll();
+ }
 
-    @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE, value = "/sec/{n}")
-    Publisher<GreetingResponse> stringPublisher(@PathVariable String n) {
-        return this.intervalMessageProducer.produceGreeting(new GreetingRequest(n));
-    }
+ @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE, value = "/sec/{n}")
+ Publisher<GreetingResponse> stringPublisher(@PathVariable String n) {
+  return this.intervalMessageProducer.produceGreeting(new GreetingRequest(n));
+ }
 
 }
 
@@ -74,44 +75,55 @@ class ReservationEndpointConfiguration {
 //        return new CaseInsensitiveRequestPredicate(target);
 //    }
 
-    @Bean
-    RouterFunction<ServerResponse> route(ReservationRepository reservationRepository) {
-        return RouterFunctions
-              .route()
-              .GET("/h/rsn", serverRequest -> ServerResponse
-                    .ok()
-                    .body(
-                          reservationRepository.findAll(),
-                          Reservation.class
-                    )
-              )
-              .GET("/h/rsn/{n}", serverRequest -> ServerResponse
-                    .ok()
-                    .body(
-                          reservationRepository.findByName(
-                                serverRequest
-                                      .pathVariable("n")
-                                      .toUpperCase()
-                          ),
-                          Reservation.class)
-              )
-              .build();
-    }
+ @Bean
+ RouterFunction<ServerResponse> route(ReservationRepository reservationRepository) {
+  return RouterFunctions
+		.route()
+		.GET("/h/rsn", serverRequest -> ServerResponse.ok()
+			  .body(
+					reservationRepository.findAll(),
+					Reservation.class))
+		.GET("/h/rsn/{n}", serverRequest -> ServerResponse.ok()
+			  .body(
+					reservationRepository.findByName(
+						  serverRequest
+								.pathVariable("n")
+								.toUpperCase()
+					),
+					Reservation.class))
+		.DELETE("/h/rsn/{n}", serverRequest -> ServerResponse.ok()
+			  .body(
+					reservationRepository.deleteAllByName(
+						  serverRequest
+								.pathVariable("n")
+								.toUpperCase()
+					),
+					Reservation.class))
+		.PUT("/h/rsn/{n}", serverRequest -> ServerResponse.ok()
+			  .body(
+					reservationRepository
+						  .findByName(serverRequest
+								.pathVariable("n")
+								.toUpperCase()
+						  )
+						  .map(reservation -> new Reservation(reservation.getId(), serverRequest.queryParam("nn").get()))
+						  .flatMap(reservationRepository::save),
+					Reservation.class
+			  ))
+		.build();
+ }
 
 }
 
 
-
 @Component
 class IntervalMessageProducer {
-
-    Flux<GreetingResponse> produceGreeting(GreetingRequest request) {
-        return Flux
-              .fromStream(Stream.generate( () -> "Hello " + request.getText() + " @ " + Instant.now()))
-              .map(GreetingResponse::new)
-              .delayElements(Duration.ofSeconds(1));
-    }
-
+ Flux<GreetingResponse> produceGreeting(GreetingRequest request) {
+  return Flux
+		.fromStream(Stream.generate(() -> "Hello " + request.getText() + " @ " + Instant.now()))
+		.map(GreetingResponse::new)
+		.delayElements(Duration.ofSeconds(1));
+ }
 }
 
 @Configuration
@@ -119,36 +131,39 @@ class IntervalMessageProducer {
 @RequiredArgsConstructor
 class R2dbcConfiguration extends AbstractR2dbcConfiguration {
 
-    private final ConnectionFactory connectionFactory;
+ private final ConnectionFactory connectionFactory;
 
-
-    @Override
-    public ConnectionFactory connectionFactory() {
-        return this.connectionFactory;
-    }
+ @Override
+ public ConnectionFactory connectionFactory() {
+  return this.connectionFactory;
+ }
 }
 
 @Configuration
 class DatabaseConfiguration {
 
-    @Value("${custom.spring.database.password}") String password;
-    @Value("${custom.spring.database.username}") String username;
+ @Value("${custom.spring.database.password}")
+ String password;
+ @Value("${custom.spring.database.username}")
+ String username;
 
-    @Bean
-    PostgresqlConnectionFactory connectionFactory() {
-        return new PostgresqlConnectionFactory(
-          PostgresqlConnectionConfiguration.builder()
-            .host("localhost")
-            .database("reactwebapp")
-            .username(username)
-            .password(password)
-            .build()
-        );
-    }
+ @Bean
+ PostgresqlConnectionFactory connectionFactory() {
+  return new PostgresqlConnectionFactory(
+		PostgresqlConnectionConfiguration.builder()
+			  .host("localhost")
+			  .database("reactwebapp")
+			  .username(username)
+			  .password(password)
+			  .build()
+  );
+ }
 }
 
 interface ReservationRepository extends ReactiveCrudRepository<Reservation, Integer> {
-    Mono<Reservation> findByName(String name);
+ Mono<Reservation> findByName(String name);
+
+ Flux<Reservation> deleteAllByName(String name);
 }
 
 @Component
@@ -156,43 +171,43 @@ interface ReservationRepository extends ReactiveCrudRepository<Reservation, Inte
 @RequiredArgsConstructor
 class SampleDataInitializer {
 
-    private final ReservationRepository reservationRepository;
+ private final ReservationRepository reservationRepository;
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void initialize() {
-        Flux<Reservation> saved = Flux
-              .just("A", "B", "C", "D", "E", "F", "G")
-              .map(name ->  new Reservation(null, name))
-              .flatMap(this.reservationRepository::save);
+ @EventListener(ApplicationReadyEvent.class)
+ public void initialize() {
+  Flux<Reservation> saved = Flux
+		.just("A", "B", "C", "D", "E", "F", "G")
+		.map(name -> new Reservation(null, name))
+		.flatMap(this.reservationRepository::save);
 
-        reservationRepository
-              .deleteAll()
-              .thenMany(saved)
-              .thenMany(this.reservationRepository.findAll())
-              .subscribe(log::info);
-    }
+  reservationRepository
+		.deleteAll()
+		.thenMany(saved)
+		.thenMany(this.reservationRepository.findAll())
+		.subscribe(log::info);
+ }
 }
 
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 class Reservation {
-    @Id
-    private Integer id;
-    @NonNull
-    private String name;
+ @Id
+ private Integer id;
+ @NonNull
+ private String name;
 }
 
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 class GreetingRequest {
-    private String text;
+ private String text;
 }
 
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 class GreetingResponse {
-    private String text;
+ private String text;
 }
