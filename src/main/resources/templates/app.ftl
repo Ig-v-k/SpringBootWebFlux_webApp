@@ -7,6 +7,9 @@
     <meta name="theme-color" content="#563d7c">
 </head>
 <body>
+
+<h1>Data</h1>
+<p>${mapDataView}</p>
 <#if mapData??>
 <table class="table table-borderless" id="table_times">
     <thead>
