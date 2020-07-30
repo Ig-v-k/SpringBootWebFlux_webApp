@@ -18,9 +18,11 @@ import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
 import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.MapReactiveUserDetailsService;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -39,6 +42,8 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.stream.Stream;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
 
 @SpringBootApplication
 public class ReactWebAppApplication {
@@ -67,7 +72,25 @@ class ReservationRestController {
 }
 
 @Configuration
-class ReservationEndpointConfiguration {
+class WebEndpointConfiguration {
+
+  Mono<ServerResponse> userHello(ServerRequest request) {
+    Mono<String> principalPublisher = request.principal().map(p -> "Hello, " + p.getName() + "!");
+    return ServerResponse.ok().body(principalPublisher, String.class);
+  }
+
+  Mono<ServerResponse> userOne(ServerRequest request) {
+    Mono<UserDetails> detailsMono = request.principal()
+		  .map(p -> UserDetails.class.cast(Authentication.class.cast(p).getPrincipal()));
+    return ServerResponse.ok().body(detailsMono, UserDetails.class);
+  }
+
+  @Bean
+  RouterFunction<?> routes() {
+    return RouterFunctions.route(GET("/wel"), this::userHello)
+		  .andRoute(GET("/use/nam"), this::userOne);
+  }
+
   @Bean
   RouterFunction<ServerResponse> route(ReservationRepository reservationRepository) {
 	return RouterFunctions
@@ -127,6 +150,23 @@ class UserSecurityConfiguration {
 	UserDetails user = User.withUsername("user").password("password").roles("USER").build();
 	UserDetails admin = User.withUsername("admin").password("password").roles("USER", "ADMIN").build();
 	return new MapReactiveUserDetailsService(user, admin);
+  }
+
+  @Bean
+  SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity httpSecurity) {
+	return httpSecurity
+		  .authorizeExchange().anyExchange().authenticated()
+		  .and()
+		  .httpBasic()
+		  .and()
+		  .build();
+  }
+
+  @Bean
+  AuthenticationProvider daoAuthenticationProvider() {
+	DaoAuthenticationProvider authenticationProvider = new DaoAuthenticationProvider();
+	authenticationProvider.setPasswordEncoder(null);
+	return authenticationProvider;
   }
 }
 
