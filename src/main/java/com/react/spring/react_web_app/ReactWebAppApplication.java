@@ -20,6 +20,7 @@ import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.Authentication;
@@ -27,6 +28,8 @@ import org.springframework.security.core.userdetails.MapReactiveUserDetailsServi
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.context.ServerSecurityContextRepository;
+import org.springframework.security.web.server.context.WebSessionServerSecurityContextRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +44,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
@@ -75,20 +79,20 @@ class ReservationRestController {
 class WebEndpointConfiguration {
 
   Mono<ServerResponse> userHello(ServerRequest request) {
-    Mono<String> principalPublisher = request.principal().map(p -> "Hello, " + p.getName() + "!");
-    return ServerResponse.ok().body(principalPublisher, String.class);
+	Mono<String> principalPublisher = request.principal().map(p -> "Hello, " + p.getName() + "!");
+	return ServerResponse.ok().body(principalPublisher, String.class);
   }
 
   Mono<ServerResponse> userOne(ServerRequest request) {
-    Mono<UserDetails> detailsMono = request.principal()
+	Mono<UserDetails> detailsMono = request.principal()
 		  .map(p -> UserDetails.class.cast(Authentication.class.cast(p).getPrincipal()));
-    return ServerResponse.ok().body(detailsMono, UserDetails.class);
+	return ServerResponse.ok().body(detailsMono, UserDetails.class);
   }
 
   @Bean
   RouterFunction<?> routes() {
-    return RouterFunctions.route(GET("/wel"), this::userHello)
-		  .andRoute(GET("/use/nam"), this::userOne);
+	return RouterFunctions.route(GET("/wel"), this::userHello)
+		  .andRoute(GET("/usr/nam"), this::userOne);
   }
 
   @Bean
@@ -145,6 +149,7 @@ class IntervalMessageProducer {
 @Configuration
 @EnableWebFluxSecurity
 class UserSecurityConfiguration {
+
   @Bean
   MapReactiveUserDetailsService userDetailsService() {
 	UserDetails user = User.withUsername("user").password("password").roles("USER").build();
@@ -153,20 +158,16 @@ class UserSecurityConfiguration {
   }
 
   @Bean
-  SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity httpSecurity) {
-	return httpSecurity
-		  .authorizeExchange().anyExchange().authenticated()
-		  .and()
-		  .httpBasic()
+  SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity security) {
+	return security
+		  .securityContextRepository(new WebSessionServerSecurityContextRepository())
+		  .authorizeExchange()
+		  .pathMatchers("/usr/nam/{username}").access((mono, authorizationContext) -> mono
+				.map(authentication -> authentication.getName().equals(authorizationContext.getVariables().get("username")))
+				.map(AuthorizationDecision::new))
+		  .anyExchange().authenticated()
 		  .and()
 		  .build();
-  }
-
-  @Bean
-  AuthenticationProvider daoAuthenticationProvider() {
-	DaoAuthenticationProvider authenticationProvider = new DaoAuthenticationProvider();
-	authenticationProvider.setPasswordEncoder(null);
-	return authenticationProvider;
   }
 }
 
@@ -206,6 +207,7 @@ class DatabaseConfiguration {
 
 interface ReservationRepository extends ReactiveCrudRepository<Reservation, Integer> {
   Mono<Reservation> findByName(String name);
+
   Flux<Reservation> deleteAllByName(String name);
 }
 
