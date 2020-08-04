@@ -6,43 +6,59 @@ import io.r2dbc.spi.ConnectionFactory;
 import lombok.*;
 import lombok.extern.log4j.Log4j2;
 import org.reactivestreams.Publisher;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
 import org.springframework.context.event.EventListener;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.r2dbc.config.AbstractR2dbcConfiguration;
 import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import org.springframework.format.Formatter;
+import org.springframework.format.FormatterRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Service;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.servlet.ViewResolver;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.thymeleaf.spring5.SpringTemplateEngine;
 import org.thymeleaf.spring5.context.webflux.IReactiveDataDriverContextVariable;
 import org.thymeleaf.spring5.context.webflux.ReactiveDataDriverContextVariable;
+import org.thymeleaf.spring5.templateresolver.SpringResourceTemplateResolver;
 import org.thymeleaf.spring5.view.ThymeleafViewResolver;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Date;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 @SpringBootApplication
@@ -63,17 +79,19 @@ class ReservationRestController {
 
   @GetMapping("/main.p")
   String mainPage(Model model) {
-
-	IReactiveDataDriverContextVariable driverContextVariable =
-		  new ReactiveDataDriverContextVariable(reservationService.listAll(), 3);
-
-    model.addAttribute("cdata", driverContextVariable);
+	IReactiveDataDriverContextVariable driverContextVariable = new ReactiveDataDriverContextVariable(reservationService.listAllReact(), 3);
+	model.addAttribute("cdata", driverContextVariable);
 	return "app";
   }
 
   @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE, value = "/sec/{n}")
   Publisher<GreetingResponse> stringPublisher(@PathVariable String n) {
 	return this.intervalMessageProducer.produceGreeting(new GreetingRequest(n));
+  }
+
+  @ModelAttribute("allSeedStarters")
+  public Flux<Reservation> populateSeedStarters() {
+	return this.reservationService.listAllReact();
   }
 }
 
@@ -141,9 +159,11 @@ class WebEndpointConfiguration {
 @RequiredArgsConstructor
 class ReservationService {
   private final ReservationRepository reservationRepository;
-
-  Flux<Reservation> listAll() {
-    return reservationRepository.findAll().delayElements(Duration.ofSeconds(2));
+  Flux<Reservation> listAllReact() {
+	return reservationRepository.findAll().delayElements(Duration.ofSeconds(1));
+  }
+  public Reservation listByName(String name) {
+	return reservationRepository.findByName(name).block();
   }
 }
 
@@ -158,14 +178,107 @@ class IntervalMessageProducer {
 }
 
 @Configuration
-class WebConfig implements WebMvcConfigurer {
-
+@EnableWebMvc
+@ComponentScan
+@RequiredArgsConstructor
+class SpringWebConfig implements ApplicationContextAware, WebMvcConfigurer {
+  private ApplicationContext applicationContext;
+  public void setApplicationContext(final ApplicationContext applicationContext)
+		throws BeansException {
+	this.applicationContext = applicationContext;
+  }
+  @Override
+  public void addResourceHandlers(final ResourceHandlerRegistry registry) {
+	registry.addResourceHandler("/images/**").addResourceLocations("/images/");
+	registry.addResourceHandler("/css/**").addResourceLocations("/css/");
+	registry.addResourceHandler("/js/**").addResourceLocations("/js/");
+  }
   @Bean
-  @Description("Thymeleaf template resolver serving HTML 5")
+  public ResourceBundleMessageSource messageSource() {
+	ResourceBundleMessageSource messageSource = new ResourceBundleMessageSource();
+	messageSource.setBasename("Messages_es.properties");
+	return messageSource;
+  }
+  @Override
+  public void addFormatters(final FormatterRegistry registry) {
+	registry.addFormatter(varietyFormatter());
+	registry.addFormatter(dateFormatter());
+  }
+  @Bean
+  public VarietyFormatter varietyFormatter() {
+	return new VarietyFormatter();
+  }
+  @Bean
+  public DateFormatter dateFormatter() {
+	return new DateFormatter();
+  }
+  @Bean
+  public SpringResourceTemplateResolver templateResolver() {
+	SpringResourceTemplateResolver templateResolver = new SpringResourceTemplateResolver();
+	templateResolver.setApplicationContext(this.applicationContext);
+	templateResolver.setPrefix("/WEB-INF/templates/");
+	templateResolver.setSuffix(".html");
+	templateResolver.setCacheable(true);
+	return templateResolver;
+  }
+  @Bean
+  public SpringTemplateEngine templateEngine() {
+	SpringTemplateEngine templateEngine = new SpringTemplateEngine();
+	templateEngine.setTemplateResolver(templateResolver());
+	templateEngine.setEnableSpringELCompiler(true);
+	return templateEngine;
+  }
+  @Bean
+  public ThymeleafViewResolver viewResolver() {
+	ThymeleafViewResolver viewResolver = new ThymeleafViewResolver();
+	viewResolver.setTemplateEngine(templateEngine());
+	return viewResolver;
+  }
+}
+
+class DateFormatter implements Formatter<Date> {
+  @Autowired
+  private MessageSource messageSource;
+  public DateFormatter() {
+	super();
+  }
+  public Date parse(final String text, final Locale locale) throws ParseException {
+	final SimpleDateFormat dateFormat = createDateFormat(locale);
+	return dateFormat.parse(text);
+  }
+  public String print(final Date object, final Locale locale) {
+	final SimpleDateFormat dateFormat = createDateFormat(locale);
+	return dateFormat.format(object);
+  }
+  private SimpleDateFormat createDateFormat(final Locale locale) {
+	final String format = this.messageSource.getMessage("date.format", null, locale);
+	final SimpleDateFormat dateFormat = new SimpleDateFormat(format);
+	dateFormat.setLenient(false);
+	return dateFormat;
+  }
+}
+
+class VarietyFormatter implements Formatter<Reservation> {
+  @Autowired
+  private ReservationService reservationService;
+  public VarietyFormatter() {
+	super();
+  }
+  public Reservation parse(final String text, final Locale locale) throws ParseException {
+	return this.reservationService.listByName(text);
+  }
+  @Override
+  public String print(final Reservation object, final Locale locale) {
+	return object.getId().toString();
+  }
+}
+
+@Configuration
+class WebConfig implements WebMvcConfigurer {
+  @Bean
+  @Description("Thymeleaf template resolver serving HTML")
   public ClassLoaderTemplateResolver templateResolver() {
-
 	ClassLoaderTemplateResolver templateResolver = new ClassLoaderTemplateResolver();
-
 	templateResolver.setPrefix("templates/");
 	templateResolver.setCacheable(false);
 	templateResolver.setSuffix(".html");
@@ -174,29 +287,21 @@ class WebConfig implements WebMvcConfigurer {
 
 	return templateResolver;
   }
-
   @Bean
   @Description("Thymeleaf template engine with Spring integration")
   public SpringTemplateEngine templateEngine() {
-
 	SpringTemplateEngine templateEngine = new SpringTemplateEngine();
 	templateEngine.setTemplateResolver(templateResolver());
-
 	return templateEngine;
   }
-
   @Bean
   @Description("Thymeleaf view resolver")
   public ViewResolver viewResolver() {
-
 	ThymeleafViewResolver viewResolver = new ThymeleafViewResolver();
-
 	viewResolver.setTemplateEngine(templateEngine());
 	viewResolver.setCharacterEncoding("UTF-8");
-
 	return viewResolver;
   }
-
   @Override
   public void addViewControllers(ViewControllerRegistry registry) {
 	registry.addViewController("/main.p").setViewName("app");
@@ -232,9 +337,7 @@ class WebConfig implements WebMvcConfigurer {
 @EnableR2dbcRepositories
 @RequiredArgsConstructor
 class R2dbcConfiguration extends AbstractR2dbcConfiguration {
-
   private final ConnectionFactory connectionFactory;
-
   @Override
   public ConnectionFactory connectionFactory() {
 	return this.connectionFactory;
@@ -243,12 +346,10 @@ class R2dbcConfiguration extends AbstractR2dbcConfiguration {
 
 @Configuration
 class DatabaseConfiguration {
-
   @Value("${custom.spring.database.password}")
   String password;
   @Value("${custom.spring.database.username}")
   String username;
-
   @Bean
   PostgresqlConnectionFactory connectionFactory() {
 	return new PostgresqlConnectionFactory(
@@ -264,7 +365,6 @@ class DatabaseConfiguration {
 
 interface ReservationRepository extends ReactiveCrudRepository<Reservation, Integer> {
   Mono<Reservation> findByName(String name);
-
   Flux<Reservation> deleteAllByName(String name);
 }
 
@@ -272,9 +372,7 @@ interface ReservationRepository extends ReactiveCrudRepository<Reservation, Inte
 @Log4j2
 @RequiredArgsConstructor
 class SampleDataInitializer {
-
   private final ReservationRepository reservationRepository;
-
   @EventListener(ApplicationReadyEvent.class)
   public void initialize() {
 	Flux<Reservation> saved = Flux
